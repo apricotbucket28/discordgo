@@ -21,6 +21,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -270,21 +271,25 @@ func (s *Session) RequestWithLockedBucket(method, urlStr, contentType string, b 
 		// Retry sending request if possible
 		if sequence < cfg.MaxRestRetries {
 
-			s.log(LogInformational, "%s Failed (%s), Retrying...", urlStr, resp.Status)
+			s.Logger.Info("request failed, retrying...", slog.String("url", urlStr), slog.String("status", resp.Status))
 			response, err = s.RequestWithLockedBucket(method, urlStr, contentType, b, s.Ratelimiter.LockBucketObject(bucket), sequence+1, options...)
 		} else {
 			err = fmt.Errorf("Exceeded Max retries HTTP %s, %s", resp.Status, response)
 		}
-	case 429: // TOO MANY REQUESTS - Rate limiting
+	case http.StatusTooManyRequests:
 		rl := TooManyRequests{}
 		err = Unmarshal(response, &rl)
 		if err != nil {
-			s.log(LogError, "rate limit unmarshal error, %s", err)
+			s.Logger.Error("rate limit unmarshal error", slog.Any("err", err))
 			return
 		}
 
 		if cfg.ShouldRetryOnRateLimit {
-			s.log(LogInformational, "Rate Limiting %s, retry in %v", urlStr, rl.RetryAfter)
+			s.Logger.Info(
+				"Rate limit encountered, retrying...",
+				slog.String("url", urlStr),
+				slog.Duration("retry_after", rl.RetryAfter),
+			)
 			s.handleEvent(rateLimitEventType, &RateLimit{TooManyRequests: &rl, URL: urlStr})
 
 			time.Sleep(rl.RetryAfter)
@@ -297,7 +302,7 @@ func (s *Session) RequestWithLockedBucket(method, urlStr, contentType string, b 
 		}
 	case http.StatusUnauthorized:
 		if strings.Index(s.Token, "Bot ") != 0 {
-			s.log(LogInformational, ErrUnauthorized.Error())
+			s.Logger.Error(ErrUnauthorized.Error())
 			err = ErrUnauthorized
 		}
 		fallthrough

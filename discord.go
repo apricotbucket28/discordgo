@@ -14,6 +14,7 @@
 package discordgo
 
 import (
+	"log/slog"
 	"net/http"
 	"runtime"
 	"time"
@@ -33,6 +34,7 @@ func New(token string) (s *Session, err error) {
 
 	// Create an empty Session interface.
 	s = &Session{
+		Logger:                             slog.Default(),
 		State:                              NewState(),
 		Ratelimiter:                        NewRatelimiter(),
 		StateEnabled:                       true,
